@@ -17,9 +17,19 @@ class Search:
         self,
         query: str,
         per_page: int = 30,
-        page: int = 1
+        page: int = 1,
+        created_start: str = '*',
+        created_end: str = '*',
+        pushed_start: str = '*',
+        pushed_end: str = '*'
     ) -> dict:
         url = f'{self.BASE_URL}/search/repositories'
+
+        if created_start != '*' or created_end != '*':
+            query += f' created:{created_start}..{created_end}'
+        if pushed_start != '*' or pushed_end != '*':  # might cause error
+            query += f' pushed:{pushed_start}..{pushed_end}'
+
         params: dict = {
             'q': query,
             'per_page': per_page,
@@ -54,13 +64,3 @@ class Search:
         )
         response.raise_for_status()
         return response.json()
-
-    def count_keyword(
-        self,
-        keyword: str
-    ) -> int:
-        result = self.search_code(keyword)
-        if 'total_count' not in result:
-            return 0
-        total_count = result.get('total_count', 0)
-        return total_count
