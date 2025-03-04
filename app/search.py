@@ -1,18 +1,12 @@
 import requests
 
 from ._constants import (
-    GITHUB_TOKEN
+    GH_BASE_URL,
+    HEADERS
 )
 
 
 class Search:
-    BASE_URL = 'https://api.github.com'
-    headers = {
-        'Accept': 'application/vnd.github+json',
-        'Authorization': f'Bearer {GITHUB_TOKEN}',
-        'X-GitHub-Api-Version': '2022-11-28'
-    }
-
     def search_repositories(
         self,
         query: str,
@@ -23,7 +17,7 @@ class Search:
         pushed_start: str = '*',
         pushed_end: str = '*'
     ) -> dict:
-        url = f'{self.BASE_URL}/search/repositories'
+        url = f'{GH_BASE_URL}/search/repositories'
 
         if created_start != '*' or created_end != '*':
             query += f' created:{created_start}..{created_end}'
@@ -37,7 +31,7 @@ class Search:
         }
         response = requests.get(
             url=url,
-            headers=self.headers,
+            headers=HEADERS,
             params=params,
             timeout=10
         )
@@ -50,7 +44,7 @@ class Search:
         per_page: int = 30,
         page: int = 1
     ) -> dict:
-        url = f'{self.BASE_URL}/search/code'
+        url = f'{GH_BASE_URL}/search/code'
         params: dict = {
             'q': query,
             'per_page': per_page,
@@ -58,7 +52,7 @@ class Search:
         }
         response = requests.get(
             url=url,
-            headers=self.headers,
+            headers=HEADERS,
             params=params,
             timeout=10
         )
