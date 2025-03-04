@@ -1,23 +1,27 @@
-from eesuhn_sdk import print_success
-from .search_code import SearchCode
-from typing import Optional
+import sys
+
+from eesuhn_sdk import (
+    print_success,
+    print_error
+)
+from .search import Search
 
 
 class Main:
     def __init__(self) -> None:
-        self.get_search_code_count(
-            keyword='coingecko',
-            # language='python'
-        )
-        pass
+        if 'search-code' in sys.argv:
+            self.get_search_code_count(
+                keyword='coingecko',
+            )
 
     def get_search_code_count(
         self,
         keyword: str,
-        language: Optional[str] = None
     ) -> None:
-        count = SearchCode().count_keyword_occurrences(
-            keyword=keyword,
-            language=language
+        count = Search().count_keyword(
+            keyword=keyword
         )
+        if count == 0:
+            print_error(f'Keyword "{keyword}" was not found')
+            return
         print_success(f'Keyword "{keyword}" was found {count} times')
