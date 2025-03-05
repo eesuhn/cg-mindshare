@@ -1,6 +1,19 @@
 // Constants
-const KEYWORDS = ['coingecko'];
-const FIXED_START_DATE = '2025-01-05'; // starting from this Sunday.
+const KEYWORDS = [
+  'CoinGecko',
+  'CoinMarketCap',
+  'CoinPaprika',
+  'DexScreener',
+  'Moralis',
+  'DexPaprika',
+  '"Defined.fi"',
+  '"Codex.io"',
+
+  // Keyword(s) that search unintended projects.
+  'Birdeye',
+  'Mobula',
+];
+const FIXED_START_DATE = '2023-12-31'; // starting from this Sunday.
 const TARGET_SHEET_NAME = 'weekly-repos-created-pushed';
 
 const GITHUB_TOKEN = ''; // <-- Insert your GitHub token here.
