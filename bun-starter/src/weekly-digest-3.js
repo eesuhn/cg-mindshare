@@ -1,5 +1,4 @@
-const GITHUB_TOKEN =
-  '';
+const GITHUB_TOKEN = '';
 const GH_BASE_URL = 'https://api.github.com';
 const HEADERS = {
   Accept: 'application/vnd.github+json',
@@ -78,15 +77,14 @@ function formatDate(date) {
   return year + '-' + month + '-' + day;
 }
 
-// Returns the last complete week's Saturday.
-// We define the latest complete week as the week ending on the last Saturday before today.
+// Compute the latest complete week's Saturday.
+// Here we compute the current week's Sunday and subtract one day.
 function getLastSaturday() {
   var today = new Date();
-  var dayOfWeek = today.getDay(); // Sunday=0, ... Saturday=6
-  // Always move back to last Saturday (even if today is Saturday).
-  var offset = dayOfWeek + 1;
-  var lastSaturday = new Date(today);
-  lastSaturday.setDate(today.getDate() - offset);
+  var currentWeekStart = new Date(today);
+  currentWeekStart.setDate(today.getDate() - today.getDay()); // Sunday of current week.
+  var lastSaturday = new Date(currentWeekStart);
+  lastSaturday.setDate(currentWeekStart.getDate() - 1);
   lastSaturday.setHours(0, 0, 0, 0);
   return lastSaturday;
 }
@@ -103,7 +101,7 @@ function getWeeklyIntervals(startDateString) {
   }
 
   var lastSaturday = getLastSaturday();
-  // Latest complete week interval: weekStart = lastSaturday - 6 days.
+  // Latest complete week starts 6 days before lastSaturday.
   var latestWeekStart = new Date(lastSaturday);
   latestWeekStart.setDate(lastSaturday.getDate() - 6);
 
@@ -130,33 +128,34 @@ function generateHeader(keywords) {
 }
 
 // Main function: Backfill missing weekly data into the sheet.
-// It reads the existing "Week Start" values and only fills missing intervals
-// up to the latest complete week, pausing as needed to respect the GitHub API rate limit.
+// Reads existing "Week Start" values (from row 2 onward) and only fills missing intervals up to the latest complete week.
+// Respects GitHub API rate limit and leaves header row intact.
 function backfillWeeklyData() {
   var keywords = ['coingecko', 'birdeye', 'mobula'];
   var fixedStartDate = '2025-01-05'; // starting from this Sunday
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheetName = 'weekly-repos-2';
+  var sheetName = 'weekly-repos-3';
   var sheet = ss.getSheetByName(sheetName);
 
-  // Generate header dynamically.
+  // Generate dynamic header.
   var header = generateHeader(keywords);
 
-  // If the sheet doesn't exist, create it and add the header row.
+  // Create sheet if it doesn't exist; otherwise, ensure header row (row 1) is correct.
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
-    sheet.appendRow(header);
+    sheet.getRange(1, 1, 1, header.length).setValues([header]);
   } else {
-    // Check/update the header row if necessary.
-    var lastColumn = Math.max(sheet.getLastColumn(), 1);
-    var existingHeader = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+    var existingHeader = sheet
+      .getRange(1, 1, 1, sheet.getLastColumn())
+      .getValues()[0];
+    // Only update header if necessary.
     if (existingHeader.join('|') !== header.join('|')) {
       sheet.getRange(1, 1, 1, header.length).setValues([header]);
     }
   }
 
-  // Read existing week start values from the sheet (skip header row).
+  // Read existing week start values from row 2 onward.
   var lastRow = sheet.getLastRow();
   var existingWeeks = {};
   if (lastRow > 1) {
@@ -164,7 +163,6 @@ function backfillWeeklyData() {
     weekStarts.forEach(function (row) {
       var cellValue = row[0];
       if (cellValue) {
-        // Convert Date object to string if necessary.
         if (cellValue instanceof Date) {
           cellValue = formatDate(cellValue);
         }
@@ -176,18 +174,24 @@ function backfillWeeklyData() {
   // Build all weekly intervals from fixed start date until the latest complete week.
   var intervals = getWeeklyIntervals(fixedStartDate);
 
-  // Filter to only intervals that are missing in the sheet (based on "Week Start").
+  // Filter intervals missing in the sheet (by "Week Start").
   var intervalsToFill = intervals.filter(function (interval) {
     return !existingWeeks[interval.start];
   });
 
-  // Calculate the total number of API calls needed.
-  // Each interval requires 2 calls per keyword (created and pushed).
+  // If no intervals to backfill, log and exit.
+  if (intervalsToFill.length === 0) {
+    Logger.log('No missing intervals. Nothing to backfill.');
+    return;
+  }
+
+  // Calculate total API calls (2 per keyword per interval).
   var totalRequestsNeeded = intervalsToFill.length * keywords.length * 2;
   Logger.log('Total API requests needed: ' + totalRequestsNeeded);
   Logger.log(
     'Estimated time (in minutes): ' + Math.ceil(totalRequestsNeeded / 30)
   );
+
   var apiCallCount = 0;
   var rowsToAppend = [];
 
@@ -195,7 +199,7 @@ function backfillWeeklyData() {
   intervalsToFill.forEach(function (interval) {
     var row = [interval.start, interval.end];
     keywords.forEach(function (keyword) {
-      // Get count for repositories created in the interval.
+      // Count repositories created.
       var createdCount = countSearchRepoCreated(
         keyword,
         interval.start,
@@ -203,10 +207,10 @@ function backfillWeeklyData() {
       );
       apiCallCount++;
       if (apiCallCount % 30 === 0 && apiCallCount < totalRequestsNeeded) {
-        Utilities.sleep(60000); // Pause 60 seconds if 30 requests have been made.
+        Utilities.sleep(60000); // Pause for 60 seconds.
       }
 
-      // Get count for repositories pushed in the interval.
+      // Count repositories pushed.
       var pushedCount = countSearchRepoPushed(
         keyword,
         interval.start,
@@ -222,18 +226,20 @@ function backfillWeeklyData() {
     rowsToAppend.push(row);
   });
 
-  // Append the new rows to the sheet.
-  if (rowsToAppend.length > 0) {
-    var startRow = sheet.getLastRow() + 1;
+  // Append new rows starting after the header row.
+  var startRow = sheet.getLastRow() + 1;
+  sheet
+    .getRange(startRow, 1, rowsToAppend.length, header.length)
+    .setValues(rowsToAppend);
+
+  // Sort only the data rows (keeping header row intact) by "Week Start" (column 1).
+  if (sheet.getLastRow() > 1) {
     sheet
-      .getRange(startRow, 1, rowsToAppend.length, header.length)
-      .setValues(rowsToAppend);
-    // Sort the sheet by the "Week Start" column (assumed to be column 1).
-    sheet.sort(1);
-    Logger.log('Backfilled ' + rowsToAppend.length + ' weeks of data.');
-  } else {
-    Logger.log('No missing intervals. Nothing to backfill.');
+      .getRange(2, 1, sheet.getLastRow() - 1, header.length)
+      .sort({ column: 1, ascending: true });
   }
+
+  Logger.log('Backfilled ' + rowsToAppend.length + ' week(s) of data.');
 }
 
 function myFunction() {
