@@ -144,15 +144,18 @@ function generateHeader(keywords) {
  */
 function updateExistingRowsForNewKeywords(sheet, header) {
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return; // no data rows exist.
+  if (lastRow < 2) {
+    Logger.log('No data rows exist. Skipping update of existing rows.');
+    return;
+  }
 
   var dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
   var data = dataRange.getValues();
   var updatedData = [];
   var apiCallCount = 0;
 
-  // For each existing row, ensure it has columns matching the new header.
-  data.forEach(function (row) {
+  data.forEach(function (row, rowIndex) {
+    // Logger.log('Update missing cell: week-start ' + formatDate(row[0]));
     while (row.length < header.length) {
       row.push('');
     }
@@ -169,29 +172,46 @@ function updateExistingRowsForNewKeywords(sheet, header) {
     // pushed: index = 2 + (i*2) + 1
     KEYWORDS.forEach(function (keyword, i) {
       var createdIndex = 2 + i * 2;
-      var pushedIndex = 2 + i * 2 + 1;
-      // If cell is empty (or undefined), then update.
+      var pushedIndex = createdIndex + 1;
+      // Update created count if missing.
       if (
         row[createdIndex] === '' ||
         row[createdIndex] === null ||
         row[createdIndex] === undefined
       ) {
+        Logger.log(
+          'Update missing cell: ' + keyword + '_created ; ' + formatDate(row[0])
+        );
         var createdCount = countSearchRepoCreated(keyword, weekStart, weekEnd);
         row[createdIndex] = createdCount;
         apiCallCount++;
         if (apiCallCount % 30 === 0) {
+          Logger.log(
+            'API call count reached ' +
+              apiCallCount +
+              '. Sleeping for 60 seconds.'
+          );
           Utilities.sleep(60000); // Pause for 60 seconds.
         }
       }
+      // Update pushed count if missing.
       if (
         row[pushedIndex] === '' ||
         row[pushedIndex] === null ||
         row[pushedIndex] === undefined
       ) {
+        Logger.log(
+          'Update missing cell: ' + keyword + '_pushed ; ' + formatDate(row[0])
+        );
         var pushedCount = countSearchRepoPushed(keyword, weekStart, weekEnd);
         row[pushedIndex] = pushedCount;
         apiCallCount++;
         if (apiCallCount % 30 === 0) {
+          Logger.log(
+            'API call count reached ' +
+              apiCallCount +
+              '. Sleeping for 60 seconds.'
+          );
           Utilities.sleep(60000); // Pause for 60 seconds.
         }
       }
@@ -201,6 +221,7 @@ function updateExistingRowsForNewKeywords(sheet, header) {
   sheet
     .getRange(2, 1, updatedData.length, header.length)
     .setValues(updatedData);
+  Logger.log('Updated missing cells. Total API calls made: ' + apiCallCount);
 }
 
 /**
@@ -209,8 +230,6 @@ function updateExistingRowsForNewKeywords(sheet, header) {
  * 2. Updates existing rows with data for any new keywords.
  * 3. Appends rows for missing weekly intervals.
  * 4. Sorts the data (excluding header) by "week-start".
- *
- * @returns
  */
 function backfillWeeklyData() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -225,16 +244,15 @@ function backfillWeeklyData() {
     var existingHeader = sheet
       .getRange(1, 1, 1, sheet.getLastColumn())
       .getValues()[0];
-    // If header is different, update it.
     if (existingHeader.join('|') !== header.join('|')) {
       sheet.getRange(1, 1, 1, header.length).setValues([header]);
     }
   }
 
-  // First, update existing rows (row 2 onward) to fill in missing columns for new keywords.
+  // First, update existing rows (row 2 onward) for new keywords.
   updateExistingRowsForNewKeywords(sheet, header);
 
-  // Read existing week-start values from the sheet.
+  // Read existing week-start values.
   var lastRow = sheet.getLastRow();
   var existingWeeks = {};
   if (lastRow > 1) {
@@ -264,7 +282,7 @@ function backfillWeeklyData() {
     return;
   }
 
-  // Calculate the total API calls needed (2 calls per keyword per missing interval).
+  // Calculate total API calls needed (2 calls per keyword per missing interval).
   var totalRequestsNeeded = intervalsToFill.length * KEYWORDS.length * 2;
   Logger.log('Total API requests needed: ' + totalRequestsNeeded);
   Logger.log(
@@ -284,6 +302,11 @@ function backfillWeeklyData() {
       );
       apiCallCount++;
       if (apiCallCount % 30 === 0 && apiCallCount < totalRequestsNeeded) {
+        Logger.log(
+          'API call count reached ' +
+            apiCallCount +
+            '. Sleeping for 60 seconds.'
+        );
         Utilities.sleep(60000); // Pause for 60 seconds.
       }
       var pushedCount = countSearchRepoPushed(
@@ -293,6 +316,11 @@ function backfillWeeklyData() {
       );
       apiCallCount++;
       if (apiCallCount % 30 === 0 && apiCallCount < totalRequestsNeeded) {
+        Logger.log(
+          'API call count reached ' +
+            apiCallCount +
+            '. Sleeping for 60 seconds.'
+        );
         Utilities.sleep(60000); // Pause for 60 seconds.
       }
       row.push(createdCount, pushedCount);
@@ -300,13 +328,13 @@ function backfillWeeklyData() {
     rowsToAppend.push(row);
   });
 
-  // Append the new rows (starting after the last row, preserving header row).
+  // Append new rows (after the last row, preserving header row).
   var startRow = sheet.getLastRow() + 1;
   sheet
     .getRange(startRow, 1, rowsToAppend.length, header.length)
     .setValues(rowsToAppend);
 
-  // Sort only the data rows (rows 2 onward) by "week-start" (first column).
+  // Sort the data rows (rows 2 onward) by "week-start".
   if (sheet.getLastRow() > 1) {
     sheet
       .getRange(2, 1, sheet.getLastRow() - 1, header.length)
