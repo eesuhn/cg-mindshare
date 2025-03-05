@@ -12,3 +12,7 @@ __pycache__/
 
 # Mac
 .DS_Store/
+
+# Logs
+app/logs/*
+!app/logs/.gitkeep

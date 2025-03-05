@@ -5,6 +5,10 @@ from eesuhn_sdk import (
     print_error
 )
 from .search import Search
+from .core import Core
+from .utils import (
+    convert_unix_to_myt
+)
 
 
 class Main:
@@ -13,6 +17,8 @@ class Main:
     end_date = '2025-12-31'
 
     def __init__(self) -> None:
+        if 'search-rpm' in sys.argv:
+            self.search_rpm()
         if 'search-code' in sys.argv:
             self.count_search_code(
                 keyword='coingecko'
@@ -29,6 +35,15 @@ class Main:
                 pushed_start=self.start_date,
                 pushed_end=self.end_date
             )
+
+    def search_rpm(self) -> None:
+        result = Core().rate_limit()
+        search = result.get('resources', {}).get('search', {})
+        search_limit = search.get('limit', 0)
+        search_used = search.get('used', 0)
+        search_reset = convert_unix_to_myt(search.get('reset', 0)).strftime('%Y-%m-%d %H:%M:%S')
+        print_success(f'search_rpm: {search_used}/{search_limit} requests used')
+        print_success(f'search_rpm: Reset time at {search_reset}')
 
     def count_search_code(
         self,
