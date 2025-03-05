@@ -1,5 +1,4 @@
-const GITHUB_TOKEN =
-  '';
+const GITHUB_TOKEN = '';
 const GH_BASE_URL = 'https://api.github.com';
 const HEADERS = {
   Accept: 'application/vnd.github+json',

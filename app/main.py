@@ -13,15 +13,19 @@ from .utils import (
 
 class Main:
     keyword = 'coingecko'
-    start_date = '2021-01-01'
-    end_date = '2025-12-31'
+    start_date = '2025-02-16'
+    end_date = '2025-02-22'
 
     def __init__(self) -> None:
         if 'search-rpm' in sys.argv:
             self.search_rpm()
         if 'search-code' in sys.argv:
             self.count_search_code(
-                keyword='coingecko'
+                keyword=self.keyword
+            )
+        if 'search-repo' in sys.argv:
+            self.count_search_repo(
+                keyword=self.keyword
             )
         if 'search-repo-created' in sys.argv:
             self.count_search_repo_created(
@@ -91,3 +95,16 @@ class Main:
             print_error(f'count_search_repo_pushed: Keyword "{keyword}" was not found')
             return
         print_success(f'count_search_repo_pushed: Keyword "{keyword}" was found {total_count} times')
+
+    def count_search_repo(
+        self,
+        keyword: str
+    ) -> None:
+        result = Search().search_repositories(
+            query=keyword
+        )
+        total_count = result.get('total_count', 0)
+        if total_count == 0:
+            print_error(f'count_search_repo: Keyword "{keyword}" was not found')
+            return
+        print_success(f'count_search_repo: Keyword "{keyword}" was found {total_count} times')
