@@ -9,9 +9,7 @@ const KEYWORDS = [
   '"Defined.fi"',
   '"Codex.io"',
 ];
-// Pre-keywords that require combined searches.
 const PRE_KEYWORDS = ['Birdeye', 'Mobula'];
-// Help keywords to combine with each PRE_KEYWORD.
 const HELP_KEYWORDS = ['API', 'SDK', 'Price', 'Token', 'Crypto'];
 
 const FIXED_START_DATE = '2023-12-31'; // One-year data backfill. Must start on a Sunday.
@@ -25,9 +23,8 @@ const HEADERS = {
   'X-GitHub-Api-Version': '2022-11-28',
 };
 
-// Global variables for API call tracking.
-var API_CALL_COUNT = 0;
-var TOTAL_REQUESTS_NEEDED = Number.MAX_SAFE_INTEGER;
+let API_CALL_COUNT = 0;
+let TOTAL_REQUESTS_NEEDED = Number.MAX_SAFE_INTEGER;
 
 /**
  * Queries GitHub's search API with retry on rate-limit errors.
@@ -210,13 +207,40 @@ function generateHeader() {
 }
 
 /**
- * Updates each existing row (starting from row 2) to fill in missing data for any new keywords.
- * For KEYWORDS, it calls countSearchRepo().
- * For PRE_KEYWORDS, it calls countSearchRepoForPre().
- * Logs the process for each update.
- *
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @param {Array<string>} header
+ * Remaps a row based on the old header vs. new header.
+ */
+function remapRow(row, oldHeader, newHeader) {
+  const newRow = [];
+  newHeader.forEach((colName) => {
+    const oldIndex = oldHeader.indexOf(colName);
+    if (oldIndex !== -1) {
+      newRow.push(row[oldIndex]);
+    } else {
+      newRow.push('');
+    }
+  });
+  return newRow;
+}
+
+/**
+ * Remaps existing data in the sheet to match the new header order.
+ */
+function remapExistingData(sheet, oldHeader, newHeader) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const dataRange = sheet.getRange(2, 1, lastRow - 1, oldHeader.length);
+  const oldData = dataRange.getValues();
+  const remappedData = oldData.map((row) =>
+    remapRow(row, oldHeader, newHeader)
+  );
+  sheet
+    .getRange(2, 1, remappedData.length, newHeader.length)
+    .setValues(remappedData);
+  Logger.log('Remapped existing data to match new header.');
+}
+
+/**
+ * Updates each existing row to fill in missing data for any new keywords.
  */
 function updateExistingRowsForNewKeywords(sheet, header) {
   const lastRow = sheet.getLastRow();
@@ -224,7 +248,7 @@ function updateExistingRowsForNewKeywords(sheet, header) {
     Logger.log('No data rows exist. Skipping update of existing rows.');
     return;
   }
-  const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
+  const dataRange = sheet.getRange(2, 1, lastRow - 1, header.length);
   const data = dataRange.getValues();
   const updatedData = [];
 
@@ -301,36 +325,34 @@ function updateExistingRowsForNewKeywords(sheet, header) {
 }
 
 /**
- * Main function that:
- * 1. Ensures the header row is up-to-date.
- * 2. Updates existing rows for any new keywords.
- * 3. Appends rows for missing weekly intervals.
- * 4. Sorts the data (excluding the header) by "week-start".
- *
- * TOTAL_REQUESTS_NEEDED is computed and set before making API calls.
+ * Main function to:
+ * 1. Update the header (and remap existing data if needed).
+ * 2. Update missing cells in existing rows.
+ * 3. Append rows for missing weekly intervals.
+ * 4. Sort the data.
  */
 function backfillWeeklyData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(TARGET_SHEET_NAME);
   const header = generateHeader();
 
-  // Create the sheet if it doesn't exist; otherwise, update header if needed.
   if (!sheet) {
     sheet = ss.insertSheet(TARGET_SHEET_NAME);
     sheet.getRange(1, 1, 1, header.length).setValues([header]);
   } else {
-    const existingHeader = sheet
-      .getRange(1, 1, 1, sheet.getLastColumn())
-      .getValues()[0];
+    const oldHeaderRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+    const existingHeader = oldHeaderRange.getValues()[0];
     if (existingHeader.join('|') !== header.join('|')) {
+      // Remap the data rows to the new header order.
+      remapExistingData(sheet, existingHeader, header);
+      // Update the header row.
       sheet.getRange(1, 1, 1, header.length).setValues([header]);
     }
   }
 
-  // Update existing rows for new keywords.
   updateExistingRowsForNewKeywords(sheet, header);
 
-  // Build set of existing week-start values.
+  // Build a set of existing week-start values.
   const lastRow = sheet.getLastRow();
   const existingWeeks = {};
   if (lastRow > 1) {
@@ -344,7 +366,7 @@ function backfillWeeklyData() {
     });
   }
 
-  // Build all weekly intervals from FIXED_START_DATE until the latest complete week.
+  // Generate weekly intervals and filter for missing ones.
   const intervals = getWeeklyIntervals(FIXED_START_DATE);
   const intervalsToFill = intervals.filter(
     (interval) => !existingWeeks[interval.start]
@@ -370,7 +392,6 @@ function backfillWeeklyData() {
 
   intervalsToFill.forEach((interval) => {
     const row = [interval.start, interval.end];
-
     // Process KEYWORDS.
     KEYWORDS.forEach((keyword) => {
       row.push(
@@ -378,7 +399,6 @@ function backfillWeeklyData() {
         countSearchRepo(keyword, 'pushed', interval.start, interval.end)
       );
     });
-
     // Process PRE_KEYWORDS.
     PRE_KEYWORDS.forEach((pre) => {
       row.push(
@@ -386,7 +406,6 @@ function backfillWeeklyData() {
         countSearchRepoForPre(pre, 'pushed', interval.start, interval.end)
       );
     });
-
     rowsToAppend.push(row);
   });
 
@@ -396,10 +415,9 @@ function backfillWeeklyData() {
     .setValues(rowsToAppend);
 
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length).sort({
-      column: 1,
-      ascending: true,
-    });
+    sheet
+      .getRange(2, 1, sheet.getLastRow() - 1, header.length)
+      .sort({ column: 1, ascending: true });
   }
 
   Logger.log(`Backfilled ${rowsToAppend.length} week(s) of data.`);
