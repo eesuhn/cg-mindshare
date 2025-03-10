@@ -1,4 +1,3 @@
-// Legitimate project keywords – searched as given.
 const KEYWORDS = [
   'CoinGecko',
   'CoinMarketCap',
@@ -26,22 +25,14 @@ const HEADERS = {
   'X-GitHub-Api-Version': '2022-11-28',
 };
 
-/**
- * Checks the API call count and pauses for 60 seconds every 30 calls.
- * @param {number} apiCallCount - Current number of API calls.
- * @param {number} totalRequestsNeeded - Total API requests planned.
- */
-function checkRateLimit(apiCallCount, totalRequestsNeeded) {
-  if (apiCallCount % 30 === 0 && apiCallCount < totalRequestsNeeded) {
-    Logger.log(
-      `API call count reached ${apiCallCount}. Sleeping for 60 seconds.`
-    );
-    Utilities.sleep(60000);
-  }
-}
+// Global variables for API call tracking.
+var API_CALL_COUNT = 0;
+var TOTAL_REQUESTS_NEEDED = Number.MAX_SAFE_INTEGER;
 
 /**
  * Queries GitHub's search API with retry on rate-limit errors.
+ * The rate-limit check is done here by incrementing a global API_CALL_COUNT.
+ *
  * @param {string} query - Base query string.
  * @param {number} [per_page=30] - Results per page.
  * @param {number} [page=1] - Page number.
@@ -60,22 +51,17 @@ function searchRepositories(
   pushed_start = '*',
   pushed_end = '*'
 ) {
-  let url = GH_BASE_URL + '/search/repositories';
   if (created_start !== '*' || created_end !== '*') {
-    query += ' created:' + created_start + '..' + created_end;
+    query += ` created:${created_start}..${created_end}`;
   }
   if (pushed_start !== '*' || pushed_end !== '*') {
-    query += ' pushed:' + pushed_start + '..' + pushed_end;
+    query += ` pushed:${pushed_start}..${pushed_end}`;
   }
-  const params = {
-    q: query,
-    per_page,
-    page,
-  };
+  const params = { q: query, per_page, page };
   const queryString = Object.keys(params)
     .map((key) => key + '=' + encodeURIComponent(params[key]))
     .join('&');
-  const finalUrl = url + '?' + queryString;
+  const finalUrl = GH_BASE_URL + '/search/repositories?' + queryString;
   const options = {
     method: 'get',
     headers: HEADERS,
@@ -85,6 +71,13 @@ function searchRepositories(
   const maxRetries = 3;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
+      API_CALL_COUNT++;
+      if (API_CALL_COUNT % 30 === 0 && API_CALL_COUNT < TOTAL_REQUESTS_NEEDED) {
+        Logger.log(
+          `API call count reached ${API_CALL_COUNT}. Sleeping for 60 seconds.`
+        );
+        Utilities.sleep(60000);
+      }
       const response = UrlFetchApp.fetch(finalUrl, options);
       return JSON.parse(response.getContentText());
     } catch (e) {
@@ -102,67 +95,46 @@ function searchRepositories(
 }
 
 /**
- * Returns the total repository count for a normal keyword (created date).
+ * Returns the total repository count for a keyword, based on the given date type.
+ *
+ * @param {string} keyword - The search keyword.
+ * @param {string} dateType - Either "created" or "pushed".
+ * @param {string} start - Start date.
+ * @param {string} end - End date.
+ * @returns {number} Total count from GitHub.
  */
-function countSearchRepoCreated(keyword, created_start, created_end) {
-  const result = searchRepositories(keyword, 30, 1, created_start, created_end);
+function countSearchRepo(keyword, dateType, start, end) {
+  let result;
+  if (dateType === 'created') {
+    result = searchRepositories(keyword, 30, 1, start, end, '*', '*');
+  } else if (dateType === 'pushed') {
+    result = searchRepositories(keyword, 30, 1, '*', '*', start, end);
+  }
   return result.total_count || 0;
 }
 
 /**
- * Returns the total repository count for a normal keyword (pushed date).
+ * For a given pre-keyword, combines it with each HELP_KEYWORD,
+ * performs a search based on the date type, and returns the sum of total_counts.
+ *
+ * @param {string} pre_keyword - The pre-keyword.
+ * @param {string} dateType - "created" or "pushed".
+ * @param {string} start - Start date.
+ * @param {string} end - End date.
+ * @returns {number} Summed count.
  */
-function countSearchRepoPushed(keyword, pushed_start, pushed_end) {
-  const result = searchRepositories(
-    keyword,
-    30,
-    1,
-    '*',
-    '*',
-    pushed_start,
-    pushed_end
-  );
-  return result.total_count || 0;
-}
-
-/**
- * For a given pre-keyword, combines it with each HELP_KEYWORD, performs a search (created date),
- * and returns the sum of total_counts.
- */
-function countSearchRepoCreatedForPre(pre_keyword, created_start, created_end) {
+function countSearchRepoForPre(pre_keyword, dateType, start, end) {
   let total = 0;
   HELP_KEYWORDS.forEach((help) => {
     const query = pre_keyword + ' ' + help;
-    const result = searchRepositories(query, 30, 1, created_start, created_end);
-    total += result.total_count || 0;
-  });
-  return total;
-}
-
-/**
- * For a given pre-keyword, combines it with each HELP_KEYWORD, performs a search (pushed date),
- * and returns the sum of total_counts.
- */
-function countSearchRepoPushedForPre(pre_keyword, pushed_start, pushed_end) {
-  let total = 0;
-  HELP_KEYWORDS.forEach((help) => {
-    const query = pre_keyword + ' ' + help;
-    const result = searchRepositories(
-      query,
-      30,
-      1,
-      '*',
-      '*',
-      pushed_start,
-      pushed_end
-    );
-    total += result.total_count || 0;
+    total += countSearchRepo(query, dateType, start, end);
   });
   return total;
 }
 
 /**
  * Formats a Date object as "YYYY-MM-DD".
+ *
  * @param {Date} date
  * @returns {string}
  */
@@ -175,7 +147,7 @@ function formatDate(date) {
 
 /**
  * Computes the latest complete week's Saturday using the script's timezone.
- * For example, if the current date is 2025-03-05 (Wednesday), returns 2025-03-01.
+ * For example, if today is 2025-03-05 (Wednesday), returns 2025-03-01.
  */
 function getLastSaturday() {
   const timeZone = Session.getScriptTimeZone();
@@ -191,6 +163,7 @@ function getLastSaturday() {
 
 /**
  * Generates weekly intervals (Sunday to Saturday) from FIXED_START_DATE until the latest complete week.
+ *
  * @param {string} startDateString
  * @returns {Array<Object>} Array of intervals with {start, end}.
  */
@@ -222,6 +195,7 @@ function getWeeklyIntervals(startDateString) {
  * Generates a header row dynamically.
  * The header begins with "week-start" and "week-end", then two columns per KEYWORD,
  * followed by two columns per PRE_KEYWORD.
+ *
  * @returns {Array<string>}
  */
 function generateHeader() {
@@ -237,9 +211,10 @@ function generateHeader() {
 
 /**
  * Updates each existing row (starting from row 2) to fill in missing data for any new keywords.
- * For KEYWORDS, it calls the normal count functions.
- * For PRE_KEYWORDS, it calls the combined functions (which sum results over HELP_KEYWORDS).
+ * For KEYWORDS, it calls countSearchRepo().
+ * For PRE_KEYWORDS, it calls countSearchRepoForPre().
  * Logs the process for each update.
+ *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {Array<string>} header
  */
@@ -252,7 +227,6 @@ function updateExistingRowsForNewKeywords(sheet, header) {
   const dataRange = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn());
   const data = dataRange.getValues();
   const updatedData = [];
-  let apiCallCount = 0;
 
   data.forEach((row, rowIndex) => {
     while (row.length < header.length) row.push('');
@@ -269,23 +243,23 @@ function updateExistingRowsForNewKeywords(sheet, header) {
         Logger.log(
           `Row ${rowIndex + 2}: Missing ${keyword}_created for week ${weekStart}`
         );
-        const createdCount = countSearchRepoCreated(
+        row[createdIndex] = countSearchRepo(
           keyword,
+          'created',
           weekStart,
           weekEnd
         );
-        row[createdIndex] = createdCount;
-        apiCallCount++;
-        checkRateLimit(apiCallCount, Number.MAX_SAFE_INTEGER);
       }
       if (row[pushedIndex] === '' || row[pushedIndex] == null) {
         Logger.log(
           `Row ${rowIndex + 2}: Missing ${keyword}_pushed for week ${weekStart}`
         );
-        const pushedCount = countSearchRepoPushed(keyword, weekStart, weekEnd);
-        row[pushedIndex] = pushedCount;
-        apiCallCount++;
-        checkRateLimit(apiCallCount, Number.MAX_SAFE_INTEGER);
+        row[pushedIndex] = countSearchRepo(
+          keyword,
+          'pushed',
+          weekStart,
+          weekEnd
+        );
       }
     });
 
@@ -298,27 +272,23 @@ function updateExistingRowsForNewKeywords(sheet, header) {
         Logger.log(
           `Row ${rowIndex + 2}: Missing ${pre}_created for week ${weekStart}`
         );
-        const createdCount = countSearchRepoCreatedForPre(
+        row[createdIndex] = countSearchRepoForPre(
           pre,
+          'created',
           weekStart,
           weekEnd
         );
-        row[createdIndex] = createdCount;
-        apiCallCount++;
-        checkRateLimit(apiCallCount, Number.MAX_SAFE_INTEGER);
       }
       if (row[pushedIndex] === '' || row[pushedIndex] == null) {
         Logger.log(
           `Row ${rowIndex + 2}: Missing ${pre}_pushed for week ${weekStart}`
         );
-        const pushedCount = countSearchRepoPushedForPre(
+        row[pushedIndex] = countSearchRepoForPre(
           pre,
+          'pushed',
           weekStart,
           weekEnd
         );
-        row[pushedIndex] = pushedCount;
-        apiCallCount++;
-        checkRateLimit(apiCallCount, Number.MAX_SAFE_INTEGER);
       }
     });
     updatedData.push(row);
@@ -337,7 +307,7 @@ function updateExistingRowsForNewKeywords(sheet, header) {
  * 3. Appends rows for missing weekly intervals.
  * 4. Sorts the data (excluding the header) by "week-start".
  *
- * This version delegates rate limiting using the checkRateLimit() function after each API call.
+ * TOTAL_REQUESTS_NEEDED is computed and set before making API calls.
  */
 function backfillWeeklyData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -390,13 +360,12 @@ function backfillWeeklyData() {
   // PRE_KEYWORDS: PRE_KEYWORDS.length * HELP_KEYWORDS.length * 2
   const callsPerInterval =
     KEYWORDS.length * 2 + PRE_KEYWORDS.length * HELP_KEYWORDS.length * 2;
-  const totalRequestsNeeded = intervalsToFill.length * callsPerInterval;
-  Logger.log(`Total API requests needed: ${totalRequestsNeeded}`);
+  TOTAL_REQUESTS_NEEDED = intervalsToFill.length * callsPerInterval;
+  Logger.log(`Total API requests needed: ${TOTAL_REQUESTS_NEEDED}`);
   Logger.log(
-    `Estimated time (in minutes): ${Math.ceil(totalRequestsNeeded / 30)}`
+    `Estimated time (in minutes): ${Math.ceil(TOTAL_REQUESTS_NEEDED / 30)}`
   );
 
-  let apiCallCount = 0;
   const rowsToAppend = [];
 
   intervalsToFill.forEach((interval) => {
@@ -404,40 +373,18 @@ function backfillWeeklyData() {
 
     // Process KEYWORDS.
     KEYWORDS.forEach((keyword) => {
-      const createdCount = countSearchRepoCreated(
-        keyword,
-        interval.start,
-        interval.end
+      row.push(
+        countSearchRepo(keyword, 'created', interval.start, interval.end),
+        countSearchRepo(keyword, 'pushed', interval.start, interval.end)
       );
-      apiCallCount++;
-      checkRateLimit(apiCallCount, totalRequestsNeeded);
-      const pushedCount = countSearchRepoPushed(
-        keyword,
-        interval.start,
-        interval.end
-      );
-      apiCallCount++;
-      checkRateLimit(apiCallCount, totalRequestsNeeded);
-      row.push(createdCount, pushedCount);
     });
 
     // Process PRE_KEYWORDS.
     PRE_KEYWORDS.forEach((pre) => {
-      const createdCount = countSearchRepoCreatedForPre(
-        pre,
-        interval.start,
-        interval.end
+      row.push(
+        countSearchRepoForPre(pre, 'created', interval.start, interval.end),
+        countSearchRepoForPre(pre, 'pushed', interval.start, interval.end)
       );
-      apiCallCount++;
-      checkRateLimit(apiCallCount, totalRequestsNeeded);
-      const pushedCount = countSearchRepoPushedForPre(
-        pre,
-        interval.start,
-        interval.end
-      );
-      apiCallCount++;
-      checkRateLimit(apiCallCount, totalRequestsNeeded);
-      row.push(createdCount, pushedCount);
     });
 
     rowsToAppend.push(row);
@@ -449,9 +396,10 @@ function backfillWeeklyData() {
     .setValues(rowsToAppend);
 
   if (sheet.getLastRow() > 1) {
-    sheet
-      .getRange(2, 1, sheet.getLastRow() - 1, header.length)
-      .sort({ column: 1, ascending: true });
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length).sort({
+      column: 1,
+      ascending: true,
+    });
   }
 
   Logger.log(`Backfilled ${rowsToAppend.length} week(s) of data.`);
