@@ -4,6 +4,9 @@ from ._constants import (
     GH_BASE_URL,
     HEADERS
 )
+from eesuhn_sdk import (
+    print_info
+)
 
 
 class Search:
@@ -12,6 +15,7 @@ class Search:
         query: str,
         per_page: int = 30,
         page: int = 1,
+        sort: str = '',
         created_start: str = '*',
         created_end: str = '*',
         pushed_start: str = '*',
@@ -23,11 +27,13 @@ class Search:
             query += f' created:{created_start}..{created_end}'
         if pushed_start != '*' or pushed_end != '*':  # might cause error
             query += f' pushed:{pushed_start}..{pushed_end}'
+        print_info(query)
 
         params: dict = {
             'q': query,
             'per_page': per_page,
-            'page': page
+            'page': page,
+            'sort': sort
         }
         response = requests.get(
             url=url,

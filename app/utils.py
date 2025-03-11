@@ -16,9 +16,9 @@ def get_package_root() -> Path:
 
 def get_current_time() -> str:
     """
-    Returns the current time in the format `YYYY-MM-DD`
+    Returns the current time in the format `YYYY-MM-DD_HH-MM-SS`
     """
-    return datetime.now().strftime('%Y-%m-%d')
+    return datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
 
 def convert_unix_to_myt(

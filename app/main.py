@@ -7,14 +7,15 @@ from eesuhn_sdk import (
 from .search import Search
 from .core import Core
 from .utils import (
-    convert_unix_to_myt
+    convert_unix_to_myt,
+    log_json
 )
 
 
 class Main:
     keyword = 'coingecko'
-    start_date = '2025-02-16'
-    end_date = '2025-02-22'
+    start_date = '2024-12-29'
+    end_date = '2025-03-08'
 
     def __init__(self) -> None:
         if 'search-rpm' in sys.argv:
@@ -25,7 +26,9 @@ class Main:
             )
         if 'search-repo' in sys.argv:
             self.count_search_repo(
-                keyword=self.keyword
+                keyword=self.keyword,
+                pushed_start=self.start_date,
+                pushed_end=self.end_date
             )
         if 'search-repo-created' in sys.argv:
             self.count_search_repo_created(
@@ -98,10 +101,18 @@ class Main:
 
     def count_search_repo(
         self,
-        keyword: str
+        keyword: str,
+        pushed_start: str = '*',
+        pushed_end: str = '*'
     ) -> None:
         result = Search().search_repositories(
-            query=keyword
+            query=keyword,
+            pushed_start=pushed_start,
+            pushed_end=pushed_end
+        )
+        log_json(
+            data=result,
+            filename='search_repo'
         )
         total_count = result.get('total_count', 0)
         if total_count == 0:
