@@ -562,6 +562,131 @@ function parseWeeklyDataByType(type) {
 }
 
 /**
+ * Retrieves the top 10 CoinGecko repositories for a given week and returns a RichTextValue.
+ * Each line is numbered (e.g., "1. ") and the repository name is set as a clickable link.
+ * Each repository appears on a new line.
+ *
+ * @param {string} weekStart - The start date (YYYY-MM-DD) of the week.
+ * @param {string} weekEnd - The end date (YYYY-MM-DD) of the week.
+ * @return {RichTextValue} A RichTextValue with numbered clickable links.
+ */
+function getCoinGeckoTopReposRichText(weekStart, weekEnd) {
+  var result = searchRepositories(
+    'CoinGecko',
+    10,
+    1,
+    weekStart,
+    weekEnd,
+    '*',
+    '*'
+  );
+  if (!result || !result.items || result.items.length === 0) {
+    return SpreadsheetApp.newRichTextValue().setText('').build();
+  }
+
+  var items = result.items.slice(0, 10);
+  var combinedText = '\n';
+  // Build the combined text with numbering.
+  items.forEach(function (item, index) {
+    combinedText += index + 1 + '. ' + item.full_name;
+    if (index < items.length - 1) {
+      combinedText += '\n';
+    }
+  });
+  combinedText += '\n';
+
+  var builder = SpreadsheetApp.newRichTextValue().setText(combinedText);
+  // Set offset to 1 to account for the initial newline.
+  var offset = 1;
+  // For each line, set the hyperlink only on the repository name part.
+  items.forEach(function (item, index) {
+    var prefix = index + 1 + '. ';
+    var nameStart = offset + prefix.length;
+    var nameLength = item.full_name.length;
+    builder.setLinkUrl(nameStart, nameStart + nameLength, item.html_url);
+    offset += prefix.length + nameLength;
+    if (index < items.length - 1) {
+      offset += 1; // for newline character.
+    }
+  });
+
+  return builder.build();
+}
+
+/**
+ * Backfills the "weekly-digest" sheet.
+ * The sheet will have two columns:
+ *   - week-start
+ *   - top-repos (a cell containing numbered, clickable links for the top 10 CoinGecko repositories)
+ */
+function backfillWeeklyDigest() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const digestSheetName = 'weekly-digest';
+  let digestSheet = ss.getSheetByName(digestSheetName);
+
+  // Create the sheet with header if it doesn't exist.
+  if (!digestSheet) {
+    digestSheet = ss.insertSheet(digestSheetName);
+    digestSheet.getRange(1, 1, 1, 2).setValues([['week-start', 'top-repos']]);
+  }
+
+  // Build a set of existing week-start values (assumed to be in column A, starting from row 2).
+  const lastRow = digestSheet.getLastRow();
+  const existingWeeks = {};
+  if (lastRow > 1) {
+    const weekStarts = digestSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    weekStarts.forEach(function (row) {
+      let cellValue = row[0];
+      if (cellValue) {
+        if (cellValue instanceof Date) cellValue = formatDate(cellValue);
+        existingWeeks[cellValue] = true;
+      }
+    });
+  }
+
+  // Generate weekly intervals from FIXED_START_DATE until the latest complete week.
+  const intervals = getWeeklyIntervals(FIXED_START_DATE);
+  const intervalsToFill = intervals.filter(function (interval) {
+    return !existingWeeks[interval.start];
+  });
+
+  if (intervalsToFill.length === 0) {
+    Logger.log('No missing intervals. Nothing to backfill in weekly-digest.');
+    return;
+  }
+
+  // Prepare rows to append: each row is [week-start, richText (top repos)].
+  const rowsToAppend = intervalsToFill.map(function (interval) {
+    var richText = getCoinGeckoTopReposRichText(interval.start, interval.end);
+    return [interval.start, richText];
+  });
+
+  const startRow = digestSheet.getLastRow() + 1;
+  digestSheet.getRange(startRow, 1, rowsToAppend.length, 2).setValues(
+    rowsToAppend.map(function (row) {
+      return [row[0], ''];
+    })
+  );
+
+  const richTextArray = rowsToAppend.map(function (row) {
+    return [row[1]];
+  });
+  digestSheet
+    .getRange(startRow, 2, rowsToAppend.length, 1)
+    .setRichTextValues(richTextArray);
+
+  if (digestSheet.getLastRow() > 1) {
+    digestSheet
+      .getRange(2, 1, digestSheet.getLastRow() - 1, 2)
+      .sort({ column: 1, ascending: false });
+  }
+
+  Logger.log(
+    'Weekly digest backfilled with ' + rowsToAppend.length + ' new entries.'
+  );
+}
+
+/**
  * Main entry point.
  */
 function myFunction() {
@@ -569,4 +694,5 @@ function myFunction() {
   parseWeeklyData();
   parseCreatedData();
   parsePushedData();
+  backfillWeeklyDigest();
 }
