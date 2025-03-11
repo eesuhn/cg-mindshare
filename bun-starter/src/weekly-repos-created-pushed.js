@@ -5,7 +5,6 @@ const KEYWORDS = [
   'DexScreener',
   'Moralis',
   'DexPaprika',
-  'GMGN',
   '"Defined.fi"',
   '"Codex.io"',
 ];
@@ -13,7 +12,8 @@ const PRE_KEYWORDS = ['Birdeye', 'Mobula'];
 const HELP_KEYWORDS = ['API', 'SDK', 'Price', 'Token', 'Crypto'];
 
 const FIXED_START_DATE = '2023-12-31'; // One-year data backfill. Must start on a Sunday.
-const TARGET_SHEET_NAME = 'weekly-repos-created-pushed';
+const PUSHED_CREATED_SHEET_NAME = 'weekly-repos-created-pushed';
+const PARSED_DATA_SHEET_NAME = 'parse-data';
 
 const GITHUB_TOKEN = ''; // <-- Insert your GitHub token here.
 const GH_BASE_URL = 'https://api.github.com';
@@ -333,11 +333,11 @@ function updateExistingRowsForNewKeywords(sheet, header) {
  */
 function backfillWeeklyData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(TARGET_SHEET_NAME);
+  let sheet = ss.getSheetByName(PUSHED_CREATED_SHEET_NAME);
   const header = generateHeader();
 
   if (!sheet) {
-    sheet = ss.insertSheet(TARGET_SHEET_NAME);
+    sheet = ss.insertSheet(PUSHED_CREATED_SHEET_NAME);
     sheet.getRange(1, 1, 1, header.length).setValues([header]);
   } else {
     const oldHeaderRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
@@ -424,8 +424,149 @@ function backfillWeeklyData() {
 }
 
 /**
+ * Parses the weekly data from the source sheet and generates a new sheet with parsed data.
+ */
+function parseWeeklyData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName(PUSHED_CREATED_SHEET_NAME);
+  const targetSheet =
+    ss.getSheetByName(PARSED_DATA_SHEET_NAME) ||
+    ss.insertSheet(PARSED_DATA_SHEET_NAME);
+
+  if (!sourceSheet) {
+    Logger.log('Source sheet not found.');
+    return;
+  }
+
+  const data = sourceSheet.getDataRange().getValues();
+  if (data.length < 2) {
+    Logger.log('No data available.');
+    return;
+  }
+
+  const header = data[0];
+  const weekStartIndex = 0;
+  const keywordIndices = {};
+
+  // Find column indices for each keyword
+  KEYWORDS.forEach((keyword) => {
+    keywordIndices[keyword] = {
+      created: header.indexOf(`${keyword}_created`),
+      pushed: header.indexOf(`${keyword}_pushed`),
+    };
+  });
+  PRE_KEYWORDS.forEach((keyword) => {
+    keywordIndices[keyword] = {
+      created: header.indexOf(`${keyword}_created`),
+      pushed: header.indexOf(`${keyword}_pushed`),
+    };
+  });
+
+  // Generate the new header: week-start + keyword columns
+  const newHeader = ['week-start', ...KEYWORDS, ...PRE_KEYWORDS];
+
+  const parsedData = data.slice(1).map((row) => {
+    const weekStart = row[weekStartIndex];
+    const rowData = [weekStart];
+
+    KEYWORDS.forEach((keyword) => {
+      const createdCount =
+        keywordIndices[keyword].created !== -1
+          ? row[keywordIndices[keyword].created] || 0
+          : 0;
+      const pushedCount =
+        keywordIndices[keyword].pushed !== -1
+          ? row[keywordIndices[keyword].pushed] || 0
+          : 0;
+      rowData.push(createdCount + pushedCount);
+    });
+    PRE_KEYWORDS.forEach((keyword) => {
+      const createdCount =
+        keywordIndices[keyword].created !== -1
+          ? row[keywordIndices[keyword].created] || 0
+          : 0;
+      const pushedCount =
+        keywordIndices[keyword].pushed !== -1
+          ? row[keywordIndices[keyword].pushed] || 0
+          : 0;
+      rowData.push(createdCount + pushedCount);
+    });
+
+    return rowData;
+  });
+
+  targetSheet.clear();
+  targetSheet.getRange(1, 1, 1, newHeader.length).setValues([newHeader]);
+  targetSheet
+    .getRange(2, 1, parsedData.length, newHeader.length)
+    .setValues(parsedData);
+}
+
+function parseCreatedData() {
+  parseWeeklyDataByType('created');
+}
+
+function parsePushedData() {
+  parseWeeklyDataByType('pushed');
+}
+
+function parseWeeklyDataByType(type) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName(PUSHED_CREATED_SHEET_NAME);
+  const targetSheetName = type === 'created' ? 'created' : 'pushed';
+  let targetSheet =
+    ss.getSheetByName(targetSheetName) || ss.insertSheet(targetSheetName);
+
+  if (!sourceSheet) {
+    Logger.log('Source sheet not found.');
+    return;
+  }
+
+  const data = sourceSheet.getDataRange().getValues();
+  if (data.length < 2) {
+    Logger.log('No data available.');
+    return;
+  }
+
+  const header = data[0];
+  const weekStartIndex = 0;
+  const keywordColumns = [
+    'week-start',
+    ...KEYWORDS.map((keyword) => `${keyword}_${type}`),
+    ...PRE_KEYWORDS.map((keyword) => `${keyword}_${type}`),
+  ];
+
+  // Find indices of relevant columns
+  const columnIndices = keywordColumns.map((colName) =>
+    header.indexOf(colName)
+  );
+
+  // Rename columns (remove _created or _pushed suffix)
+  const renamedColumns = ['week-start', ...KEYWORDS, ...PRE_KEYWORDS];
+
+  // Extract the relevant data
+  const extractedData = data
+    .slice(1)
+    .map((row) =>
+      columnIndices.map((colIndex) => (colIndex !== -1 ? row[colIndex] : ''))
+    );
+
+  // Write to the target sheet
+  targetSheet.clear();
+  targetSheet
+    .getRange(1, 1, 1, renamedColumns.length)
+    .setValues([renamedColumns]);
+  targetSheet
+    .getRange(2, 1, extractedData.length, renamedColumns.length)
+    .setValues(extractedData);
+}
+
+/**
  * Main entry point.
  */
 function myFunction() {
   backfillWeeklyData();
+  parseWeeklyData();
+  parseCreatedData();
+  parsePushedData();
 }
