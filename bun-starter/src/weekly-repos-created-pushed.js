@@ -530,7 +530,6 @@ function parseWeeklyDataByType(type) {
   }
 
   const header = data[0];
-  const weekStartIndex = 0;
   const keywordColumns = [
     'week-start',
     ...KEYWORDS.map((keyword) => `${keyword}_${type}`),
@@ -587,7 +586,6 @@ function getCoinGeckoTopReposRichText(weekStart, weekEnd) {
 
   var items = result.items.slice(0, 10);
   var combinedText = '\n';
-  // Build the combined text with numbering.
   items.forEach(function (item, index) {
     combinedText += index + 1 + '. ' + item.full_name;
     if (index < items.length - 1) {
@@ -619,23 +617,25 @@ function getCoinGeckoTopReposRichText(weekStart, weekEnd) {
  * The sheet will have two columns:
  *   - week-start
  *   - top-repos (a cell containing numbered, clickable links for the top 10 CoinGecko repositories)
+ * Data rows start at row 3.
  */
 function backfillWeeklyDigest() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const digestSheetName = 'weekly-digest';
   let digestSheet = ss.getSheetByName(digestSheetName);
 
-  // Create the sheet with header if it doesn't exist.
   if (!digestSheet) {
     digestSheet = ss.insertSheet(digestSheetName);
-    digestSheet.getRange(1, 1, 1, 2).setValues([['week-start', 'top-repos']]);
+    // Reserve row 1 for custom info, header on row 2.
+    digestSheet.getRange(2, 1, 1, 2).setValues([['week-start', 'top-repos']]);
   }
 
-  // Build a set of existing week-start values (assumed to be in column A, starting from row 2).
+  // Build a set of existing week-start values.
+  // Data rows start at row 3 (row 2 is header).
   const lastRow = digestSheet.getLastRow();
   const existingWeeks = {};
-  if (lastRow > 1) {
-    const weekStarts = digestSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  if (lastRow > 2) {
+    const weekStarts = digestSheet.getRange(3, 1, lastRow - 2, 1).getValues();
     weekStarts.forEach(function (row) {
       let cellValue = row[0];
       if (cellValue) {
@@ -676,14 +676,112 @@ function backfillWeeklyDigest() {
     .getRange(startRow, 2, rowsToAppend.length, 1)
     .setRichTextValues(richTextArray);
 
-  if (digestSheet.getLastRow() > 1) {
+  // Sort the data rows (starting from row 3) based on the week-start column (column 1).
+  if (digestSheet.getLastRow() > 2) {
     digestSheet
-      .getRange(2, 1, digestSheet.getLastRow() - 1, 2)
+      .getRange(3, 1, digestSheet.getLastRow() - 2, 2)
       .sort({ column: 1, ascending: false });
   }
 
   Logger.log(
     'Weekly digest backfilled with ' + rowsToAppend.length + ' new entries.'
+  );
+}
+
+/**
+ * Generates monthly intervals by grouping 4 complete weekly intervals.
+ * Each interval has a start date (first week's Sunday) and an end date (last week's Saturday).
+ * Only groups with exactly 4 weeks are included.
+ *
+ * @param {string} startDateString - The fixed start date (must be a Sunday).
+ * @returns {Array<Object>} Array of intervals with {start, end} representing a 4-week period.
+ */
+function getMonthlyIntervals(startDateString) {
+  const weeklyIntervals = getWeeklyIntervals(startDateString);
+  const monthlyIntervals = [];
+  for (let i = 0; i < weeklyIntervals.length; i += 4) {
+    const group = weeklyIntervals.slice(i, i + 4);
+    if (group.length < 4) break; // Skip incomplete group
+    const monthStart = group[0].start;
+    const monthEnd = group[group.length - 1].end;
+    monthlyIntervals.push({ start: monthStart, end: monthEnd });
+  }
+  return monthlyIntervals;
+}
+
+/**
+ * Backfills the "monthly-digest" sheet.
+ * The sheet will have a custom info row (row 1), a header row (row 2) with two columns:
+ *   - month-start (start date of the 4-week period)
+ *   - top-repos (a cell containing numbered, clickable links for the top 10 CoinGecko repositories)
+ * Data rows start at row 3.
+ */
+function backfillMonthlyDigest() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const digestSheetName = 'monthly-digest';
+  let digestSheet = ss.getSheetByName(digestSheetName);
+
+  if (!digestSheet) {
+    digestSheet = ss.insertSheet(digestSheetName);
+    // Reserve row 1 for custom info, header on row 2.
+    digestSheet.getRange(2, 1, 1, 2).setValues([['month-start', 'top-repos']]);
+  }
+
+  // Build a set of existing month-start values.
+  // Data rows start at row 3 (row 2 is header).
+  const lastRow = digestSheet.getLastRow();
+  const existingMonths = {};
+  if (lastRow > 2) {
+    const monthStarts = digestSheet.getRange(3, 1, lastRow - 2, 1).getValues();
+    monthStarts.forEach(function (row) {
+      let cellValue = row[0];
+      if (cellValue) {
+        if (cellValue instanceof Date) cellValue = formatDate(cellValue);
+        existingMonths[cellValue] = true;
+      }
+    });
+  }
+
+  // Generate monthly intervals from FIXED_START_DATE until the latest complete week.
+  const intervals = getMonthlyIntervals(FIXED_START_DATE);
+  const intervalsToFill = intervals.filter(function (interval) {
+    return !existingMonths[interval.start];
+  });
+
+  if (intervalsToFill.length === 0) {
+    Logger.log('No missing intervals. Nothing to backfill in monthly-digest.');
+    return;
+  }
+
+  // Prepare rows to append: each row is [month-start, richText (top repos)].
+  const rowsToAppend = intervalsToFill.map(function (interval) {
+    var richText = getCoinGeckoTopReposRichText(interval.start, interval.end);
+    return [interval.start, richText];
+  });
+
+  const startRow = digestSheet.getLastRow() + 1;
+  digestSheet.getRange(startRow, 1, rowsToAppend.length, 2).setValues(
+    rowsToAppend.map(function (row) {
+      return [row[0], ''];
+    })
+  );
+
+  const richTextArray = rowsToAppend.map(function (row) {
+    return [row[1]];
+  });
+  digestSheet
+    .getRange(startRow, 2, rowsToAppend.length, 1)
+    .setRichTextValues(richTextArray);
+
+  // Sort the data rows (starting from row 3) based on the month-start column (column 1).
+  if (digestSheet.getLastRow() > 2) {
+    digestSheet
+      .getRange(3, 1, digestSheet.getLastRow() - 2, 2)
+      .sort({ column: 1, ascending: false });
+  }
+
+  Logger.log(
+    'Monthly digest backfilled with ' + rowsToAppend.length + ' new entries.'
   );
 }
 
@@ -696,4 +794,5 @@ function myFunction() {
   parseCreatedData();
   parsePushedData();
   backfillWeeklyDigest();
+  backfillMonthlyDigest();
 }
