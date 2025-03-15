@@ -575,10 +575,10 @@ function getCoinGeckoTopReposRichText(weekStart, weekEnd) {
     'CoinGecko',
     10,
     1,
-    weekStart,
-    weekEnd,
     '*',
-    '*'
+    '*',
+    weekStart,
+    weekEnd
   );
   if (!result || !result.items || result.items.length === 0) {
     return SpreadsheetApp.newRichTextValue().setText('').build();
