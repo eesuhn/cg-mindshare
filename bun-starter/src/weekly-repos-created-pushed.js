@@ -1,5 +1,6 @@
 const KEYWORDS = [
   'CoinGecko',
+  'GeckoTerminal',
   'CoinMarketCap',
   'CoinPaprika',
   'DexScreener',
