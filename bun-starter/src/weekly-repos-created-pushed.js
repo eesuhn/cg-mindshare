@@ -496,6 +496,9 @@ function parseWeeklyData() {
     return rowData;
   });
 
+  // Sort descending by week-start (assumed to be a date or date string)
+  parsedData.sort((a, b) => new Date(b[0]) - new Date(a[0]));
+
   targetSheet.clear();
   targetSheet.getRange(1, 1, 1, newHeader.length).setValues([newHeader]);
   targetSheet
@@ -550,6 +553,9 @@ function parseWeeklyDataByType(type) {
     .map((row) =>
       columnIndices.map((colIndex) => (colIndex !== -1 ? row[colIndex] : ''))
     );
+
+  // Sort descending by week-start (assumed to be a date or date string)
+  extractedData.sort((a, b) => new Date(b[0]) - new Date(a[0]));
 
   // Write to the target sheet
   targetSheet.clear();
