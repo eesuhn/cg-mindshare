@@ -907,7 +907,7 @@ function backfillNpmDownloadsForSheet(sheetName, packages, startDate) {
   if (sheet.getLastRow() > 1) {
     sheet
       .getRange(2, 1, sheet.getLastRow() - 1, header.length)
-      .sort({ column: 1, ascending: true });
+      .sort({ column: 1, ascending: false });
   }
 
   Logger.log(
