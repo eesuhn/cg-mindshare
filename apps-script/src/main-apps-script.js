@@ -12,11 +12,26 @@ const KEYWORDS = [
 const PRE_KEYWORDS = ['Birdeye', 'Mobula'];
 const HELP_KEYWORDS = ['API', 'SDK', 'Price', 'Token', 'Crypto'];
 
+const GOAT_SDK = [
+  '@goat-sdk/plugin-coingecko',
+  '@goat-sdk/plugin-coinmarketcap',
+  '@goat-sdk/plugin-birdeye',
+  '@goat-sdk/plugin-dexscreener',
+];
+
+const ELIZA_SDK = [
+  '@elizaos/plugin-coingecko',
+  '@elizaos/plugin-coinmarketcap',
+  '@elizaos/plugin-birdeye',
+  '@elizaos/plugin-dexscreener',
+];
+
 const FIXED_START_DATE = '2023-12-31'; // One-year data backfill. Must start on a Sunday.
-const PUSHED_CREATED_SHEET_NAME = 'weekly-repos-created-pushed';
+const PUSHED_CREATED_SHEET_NAME = 'weekly-created-pushed';
 const PARSED_DATA_SHEET_NAME = 'parse-data';
 
-const GITHUB_TOKEN = ''; // <-- Insert your GitHub token here.
+const GITHUB_TOKEN =
+  ''; // <-- Insert your GitHub token here.
 const GH_BASE_URL = 'https://api.github.com';
 const HEADERS = {
   Accept: 'application/vnd.github+json',
@@ -792,6 +807,115 @@ function backfillMonthlyDigest() {
 }
 
 /**
+ * Fetches the total NPM downloads for a package between the given start and end dates.
+ *
+ * @param {string} packageName - The NPM package name.
+ * @param {string} startDate - Start date in YYYY-MM-DD format.
+ * @param {string} endDate - End date in YYYY-MM-DD format.
+ * @returns {number} Total downloads for the week.
+ */
+function getNpmDownloads(packageName, startDate, endDate) {
+  const url = `https://api.npmjs.org/downloads/range/${startDate}:${endDate}/${packageName}`;
+  try {
+    const response = UrlFetchApp.fetch(url);
+    const json = JSON.parse(response.getContentText());
+    let total = 0;
+    if (json.downloads && Array.isArray(json.downloads)) {
+      json.downloads.forEach(function (day) {
+        total += day.downloads;
+      });
+    }
+    return total;
+  } catch (e) {
+    Logger.log(
+      'Error fetching NPM downloads for ' +
+        packageName +
+        ' (' +
+        startDate +
+        ' to ' +
+        endDate +
+        '): ' +
+        e
+    );
+    return 0;
+  }
+}
+
+/**
+ * Backfills weekly NPM download data for a given sheet and package list.
+ * The sheet will have a header row: [week-start, week-end, ...packages].
+ * Missing weeks (based on week-start) will be appended with download counts.
+ *
+ * @param {string} sheetName - The target sheet name.
+ * @param {Array<string>} packages - Array of NPM package names.
+ * @param {string} startDate - Start date in YYYY-MM-DD format.
+ */
+function backfillNpmDownloadsForSheet(sheetName, packages, startDate) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(sheetName);
+  const header = ['week-start', 'week-end', ...packages];
+
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.getRange(1, 1, 1, header.length).setValues([header]);
+  } else {
+    const existingHeaderRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+    const existingHeader = existingHeaderRange.getValues()[0];
+    if (existingHeader.join('|') !== header.join('|')) {
+      sheet.getRange(1, 1, 1, header.length).setValues([header]);
+    }
+  }
+
+  const lastRow = sheet.getLastRow();
+  const existingWeeks = {};
+  if (lastRow > 1) {
+    const weekStarts = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    weekStarts.forEach(function (row) {
+      let cellValue = row[0];
+      if (cellValue) {
+        if (cellValue instanceof Date) cellValue = formatDate(cellValue);
+        existingWeeks[cellValue] = true;
+      }
+    });
+  }
+
+  const intervals = getWeeklyIntervals(startDate);
+  const intervalsToFill = intervals.filter(function (interval) {
+    return !existingWeeks[interval.start];
+  });
+
+  if (intervalsToFill.length === 0) {
+    Logger.log('No missing intervals in ' + sheetName);
+    return;
+  }
+
+  const rowsToAppend = [];
+  intervalsToFill.forEach(function (interval) {
+    const row = [interval.start, interval.end];
+    packages.forEach(function (pkg) {
+      const downloads = getNpmDownloads(pkg, interval.start, interval.end);
+      row.push(downloads);
+    });
+    rowsToAppend.push(row);
+  });
+
+  const startRow = sheet.getLastRow() + 1;
+  sheet
+    .getRange(startRow, 1, rowsToAppend.length, header.length)
+    .setValues(rowsToAppend);
+
+  if (sheet.getLastRow() > 1) {
+    sheet
+      .getRange(2, 1, sheet.getLastRow() - 1, header.length)
+      .sort({ column: 1, ascending: true });
+  }
+
+  Logger.log(
+    'Backfilled ' + rowsToAppend.length + ' week(s) of data in ' + sheetName
+  );
+}
+
+/**
  * Main entry point.
  */
 function myFunction() {
@@ -801,4 +925,6 @@ function myFunction() {
   parsePushedData();
   backfillWeeklyDigest();
   backfillMonthlyDigest();
+  backfillNpmDownloadsForSheet('goat_sdk', GOAT_SDK, '2024-12-01');
+  backfillNpmDownloadsForSheet('eliza_sdk', ELIZA_SDK, '2025-01-26');
 }
