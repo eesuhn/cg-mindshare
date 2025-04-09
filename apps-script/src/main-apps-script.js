@@ -721,10 +721,9 @@ function getMonthlyIntervals(startDateString) {
   const weeklyIntervals = getWeeklyIntervals(startDateString);
   const monthlyIntervals = [];
   for (let i = 0; i < weeklyIntervals.length; i += 4) {
-    const group = weeklyIntervals.slice(i, i + 4);
-    if (group.length < 4) break; // Skip incomplete group
-    const monthStart = group[0].start;
-    const monthEnd = group[group.length - 1].end;
+    const monthStart = weeklyIntervals[i].start;
+    const monthEnd =
+      weeklyIntervals[Math.min(i + 3, weeklyIntervals.length - 1)].end;
     monthlyIntervals.push({ start: monthStart, end: monthEnd });
   }
   return monthlyIntervals;
