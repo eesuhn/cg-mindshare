@@ -1,6 +1,6 @@
 {
-  "name": "cg-sdk",
-  "module": "index.ts",
+  "name": "bun-starter",
+  "module": "src/index.ts",
   "type": "module",
   "devDependencies": {
     "@types/bun": "latest",
@@ -18,14 +18,15 @@
   },
   "scripts": {
     "prepare": "husky",
-    "lint": "eslint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "lint": "eslint --config .config/eslint.config.js",
+    "lint:fix": "eslint --config .config/eslint.config.js --fix",
+    "format": "prettier --config .config/.prettierrc --ignore-path .config/.prettierignore --write .",
+    "format:check": "prettier --config .config/.prettierrc --ignore-path .config/.prettierignore --check ."
   },
   "lint-staged": {
     "*.{ts,js,json,md}": [
-      "eslint --fix",
-      "prettier --write"
+      "eslint --config .config/eslint.config.js --fix",
+      "prettier --config .config/.prettierrc --ignore-path .config/.prettierignore --write"
     ]
   },
   "dependencies": {
